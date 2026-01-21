@@ -1,0 +1,69 @@
+{
+  "nodes": {
+    "nix2container": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1767430085,
+        "narHash": "sha256-SiXJ6xv4pS2MDUqfj0/mmG746cGeJrMQGmoFgHLS25Y=",
+        "owner": "nlewo",
+        "repo": "nix2container",
+        "rev": "66f4b8a47e92aa744ec43acbb5e9185078983909",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nlewo",
+        "repo": "nix2container",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1768886240,
+        "narHash": "sha256-C2TjvwYZ2VDxYWeqvvJ5XPPp6U7H66zeJlRaErJKoEM=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "80e4adbcf8992d3fd27ad4964fbb84907f9478b0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nix2container": "nix2container",
+        "nixpkgs": "nixpkgs",
+        "steam-fetcher": "steam-fetcher"
+      }
+    },
+    "steam-fetcher": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1758622040,
+        "narHash": "sha256-BRUZZoQDCD1qByJjHm4YKipQlB2PburWLG9Iaggr8XQ=",
+        "owner": "aidalgol",
+        "repo": "nix-steam-fetcher",
+        "rev": "ab5e3a0828b4b179feb548c57be584ce812956a8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "aidalgol",
+        "repo": "nix-steam-fetcher",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
