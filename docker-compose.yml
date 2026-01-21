@@ -1,0 +1,13 @@
+services:
+  resonite-headless:
+    image: resonite-headless:runtime
+    env_file: .env
+    volumes:
+      - game:/Game
+      - logs:/Logs
+      - ./config:/Config:ro
+    restart: unless-stopped
+
+volumes:
+  game:
+  logs:

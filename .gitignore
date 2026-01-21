@@ -1,0 +1,25 @@
+references/
+depots/
+
+# Nix build outputs
+result
+result-*
+build/
+
+# Environment files with credentials
+.env
+*.env
+!.envrc
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+# nix-direnv cache
+.direnv/
