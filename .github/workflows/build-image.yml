@@ -3,6 +3,11 @@ name: Build and Push Image
 on:
   push:
     branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - '.github/workflows/build-image.yml'
   workflow_dispatch:
 
 env:
