@@ -1,6 +1,13 @@
 {
   description = "Resonite Headless Docker Images built with Nix";
 
+  nixConfig = {
+    extra-substituters = [ "https://resonite-headless.cachix.org" ];
+    extra-trusted-public-keys = [
+      "resonite-headless.cachix.org-1:qiHbubszcmOC4XfIF/DAMkD2JZpO0ZMkywqtRtcK1oU="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
