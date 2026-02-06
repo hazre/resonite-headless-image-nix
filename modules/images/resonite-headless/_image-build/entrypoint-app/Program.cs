@@ -10,6 +10,8 @@ static partial class Program
     private static readonly string[] RequiredEnvVars = ["STEAM_USERNAME", "STEAM_PASSWORD"];
     private static readonly string[] NonLinuxPlatformPrefixes = ["win", "osx", "ios", "android", "freebsd", "rhel", "fedora", "opensuse", "debian"];
     private static readonly string[] UnnecessaryFileExtensions = ["*.exe", "*.pdb", "*.a", "*.dll.config"];
+    private static readonly string[] RequiredSystemLibraries = ["libpng16.so.16", "libbz2.so.1.0", "libz.so.1"];
+    private static readonly string[] NixLibraryPackages = ["libpng", "bzip2", "zlib"];
 
     public static async Task<int> Main(string[] args)
     {
@@ -29,7 +31,9 @@ static partial class Program
         if (await DownloadIfNeeded(gameDir, headlessDir, requestedVersion) is false)
             return 1;
 
-        return await LaunchServer(headlessDir, configPath, logsPath, args);
+        var libraryPath = PrepareNativeLibraries(headlessDir);
+
+        return await LaunchServer(headlessDir, configPath, logsPath, args, libraryPath);
     }
 
     private static bool ValidateCredentials()
@@ -203,7 +207,133 @@ static partial class Program
         }
     }
 
-    private static async Task<int> LaunchServer(string headlessDir, string configPath, string logsPath, string[] args)
+    private static string? PrepareNativeLibraries(string headlessDir)
+    {
+        var runtimeDirs = GetLinuxNativeRuntimeDirs(headlessDir);
+        if (runtimeDirs.Count == 0)
+            return null;
+
+        Console.WriteLine("Preparing native libraries...");
+
+        foreach (var dir in runtimeDirs)
+        {
+            EnsureSymlink(
+                Path.Combine(dir, "freetype6.so"),
+                Path.Combine(dir, "libfreetype6.so"),
+                Path.GetFileName(Path.Combine(dir, "libfreetype6.so"))
+            );
+        }
+
+        var libraryDirs = BuildLibrarySearchDirs(runtimeDirs);
+        foreach (var runtimeDir in runtimeDirs)
+        {
+            foreach (var libraryName in RequiredSystemLibraries)
+                EnsureLibrarySymlink(runtimeDir, libraryName, libraryDirs);
+        }
+
+        if (libraryDirs.Count == 0)
+            return null;
+
+        return string.Join(':', libraryDirs);
+    }
+
+    private static List<string> GetLinuxNativeRuntimeDirs(string headlessDir)
+    {
+        var runtimesRoot = Path.Combine(headlessDir, "runtimes");
+        if (!Directory.Exists(runtimesRoot))
+            return [];
+
+        return Directory
+            .EnumerateDirectories(runtimesRoot)
+            .Where(dir => Path.GetFileName(dir).StartsWith("linux", StringComparison.Ordinal))
+            .Select(dir => Path.Combine(dir, "native"))
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static List<string> BuildLibrarySearchDirs(IEnumerable<string> runtimeDirs)
+    {
+        var result = new List<string>();
+
+        void AddDirectory(string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+                return;
+
+            if (result.Contains(dir, StringComparer.Ordinal))
+                return;
+
+            result.Add(dir);
+        }
+
+        var existingLibraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "";
+        foreach (var dir in existingLibraryPath.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            AddDirectory(dir);
+
+        foreach (var dir in runtimeDirs)
+            AddDirectory(dir);
+
+        foreach (var packageName in NixLibraryPackages)
+        {
+            foreach (var dir in FindNixStoreLibDirs(packageName))
+                AddDirectory(dir);
+        }
+
+        return result;
+    }
+
+    private static IEnumerable<string> FindNixStoreLibDirs(string packageName)
+    {
+        const string nixStore = "/nix/store";
+        if (!Directory.Exists(nixStore))
+            yield break;
+
+        IEnumerable<string> candidates;
+        try
+        {
+            candidates = Directory.EnumerateDirectories(nixStore, $"*-{packageName}-*");
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var libDir = Path.Combine(candidate, "lib");
+            if (Directory.Exists(libDir))
+                yield return libDir;
+        }
+    }
+
+    private static void EnsureLibrarySymlink(string runtimeDir, string libraryName, IEnumerable<string> libraryDirs)
+    {
+        var targetPath = Path.Combine(runtimeDir, libraryName);
+        if (File.Exists(targetPath))
+            return;
+
+        foreach (var libraryDir in libraryDirs)
+        {
+            var sourcePath = Path.Combine(libraryDir, libraryName);
+            if (!File.Exists(sourcePath))
+                continue;
+
+            EnsureSymlink(targetPath, sourcePath, sourcePath);
+            return;
+        }
+    }
+
+    private static void EnsureSymlink(string linkPath, string targetPath, string displayTarget)
+    {
+        if (!File.Exists(targetPath) || File.Exists(linkPath))
+            return;
+
+        File.CreateSymbolicLink(linkPath, targetPath);
+        Console.WriteLine($"  Created {linkPath} -> {displayTarget}");
+    }
+
+    private static async Task<int> LaunchServer(string headlessDir, string configPath, string logsPath, string[] args, string? libraryPath)
     {
         Console.WriteLine("Starting Resonite Headless Server...");
         Directory.SetCurrentDirectory(headlessDir);
@@ -215,6 +345,9 @@ static partial class Program
             Arguments = $"Resonite.dll -HeadlessConfig {configPath} -Logs {logsPath} {string.Join(" ", args)}",
             UseShellExecute = false
         };
+
+        if (!string.IsNullOrWhiteSpace(libraryPath))
+            startInfo.Environment["LD_LIBRARY_PATH"] = libraryPath;
 
         var process = Process.Start(startInfo);
         if (process is null)
