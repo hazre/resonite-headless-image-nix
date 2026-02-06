@@ -9,10 +9,9 @@ pkgs.buildDotnetModule {
   src = ./.;
 
   projectFile = "Entrypoint.csproj";
-  nugetDeps = ./deps.nix;
 
-  dotnet-sdk = pkgs.dotnet-sdk_10;
-  dotnet-runtime = pkgs.dotnet-runtime_10;
+  dotnet-sdk = pkgs.dotnetCorePackages.sdk_10_0;
+  dotnet-runtime = pkgs.dotnetCorePackages.runtime_10_0;
 
   executables = [ "Entrypoint" ];
 

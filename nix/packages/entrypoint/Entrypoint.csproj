@@ -4,13 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-
-    <!-- Size optimizations -->
     <SelfContained>false</SelfContained>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
-
-    <!-- We don't need culture-specific formatting -->
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 </Project>

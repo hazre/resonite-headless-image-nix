@@ -16,6 +16,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    resonitedownloader = {
+      url = "github:hazre/ResoniteDownloader";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -23,6 +27,7 @@
       self,
       nixpkgs,
       nix2container,
+      resonitedownloader,
     }:
     let
       # Support both x86_64 and ARM64
@@ -50,12 +55,14 @@
           pkgs = nixpkgsFor.${system};
           n2c = nix2container.packages.${system}.nix2container;
           skopeo-nix2container = nix2container.packages.${system}.skopeo-nix2container;
+          resoniteDownloaderPkg = resonitedownloader.packages.${system}.default;
 
           resonite-image = import ./nix/images/default.nix {
             inherit
               pkgs
               n2c
               skopeo-nix2container
+              resoniteDownloaderPkg
               ;
           };
         in
@@ -75,6 +82,7 @@
         system:
         let
           pkgs = nixpkgsFor.${system};
+          resoniteDownloaderPkg = resonitedownloader.packages.${system}.default;
         in
         {
           default = pkgs.mkShell {
@@ -82,11 +90,12 @@
 
             packages = with pkgs; [
               jq
+              resoniteDownloaderPkg
               depotdownloader
               nixfmt-tree
               dive
               skopeo
-              dotnet-sdk_10
+              dotnetCorePackages.runtime_10_0
             ];
 
             shellHook = ''

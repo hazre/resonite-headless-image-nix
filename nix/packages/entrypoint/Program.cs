@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 
 return await Program.Main(args);
 
@@ -8,11 +7,7 @@ return await Program.Main(args);
 /// </summary>
 static partial class Program
 {
-    private const int AppId = 2519830;
-    private const int DepotId = 2519832;
-    private const string VersionMonitorUrl = "https://raw.githubusercontent.com/resonite-love/resonite-version-monitor/refs/heads/master/data/versions.json";
-
-    private static readonly string[] RequiredEnvVars = ["STEAM_USERNAME", "STEAM_PASSWORD", "STEAM_BETA_PASSWORD"];
+    private static readonly string[] RequiredEnvVars = ["STEAM_USERNAME", "STEAM_PASSWORD"];
     private static readonly string[] NonLinuxPlatformPrefixes = ["win", "osx", "ios", "android", "freebsd", "rhel", "fedora", "opensuse", "debian"];
     private static readonly string[] UnnecessaryFileExtensions = ["*.exe", "*.pdb", "*.a", "*.dll.config"];
 
@@ -28,13 +23,10 @@ static partial class Program
         if (!ValidateCredentials())
             return 1;
 
-        var version = await ResolveVersion();
-        if (version is null)
-            return 1;
-
-        Console.WriteLine($"Target version: {version}");
-
-        if (await DownloadIfNeeded(gameDir, headlessDir, version) is false)
+        // ResoniteDownloader handles version resolution automatically if not specified
+        var requestedVersion = Environment.GetEnvironmentVariable("RESONITE_VERSION");
+        
+        if (await DownloadIfNeeded(gameDir, headlessDir, requestedVersion) is false)
             return 1;
 
         return await LaunchServer(headlessDir, configPath, logsPath, args);
@@ -58,79 +50,43 @@ static partial class Program
         return false;
     }
 
-    private static async Task<string?> ResolveVersion()
-    {
-        var envVersion = Environment.GetEnvironmentVariable("RESONITE_VERSION");
-        if (!string.IsNullOrEmpty(envVersion))
-            return envVersion;
-
-        Console.WriteLine("Fetching latest Resonite version...");
-
-        try
-        {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            var json = await http.GetStringAsync(VersionMonitorUrl);
-            var data = JsonDocument.Parse(json);
-
-            if (!data.RootElement.TryGetProperty("headless", out var headlessArray))
-            {
-                Console.Error.WriteLine("ERROR: Version monitor response missing 'headless' field");
-                return null;
-            }
-
-            var version = headlessArray
-                .EnumerateArray()
-                .Select(v => v.TryGetProperty("gameVersion", out var gv) ? gv.GetString() : null)
-                .Where(v => !string.IsNullOrEmpty(v) && Version.TryParse(v, out _))
-                .OrderByDescending(v => Version.Parse(v!))
-                .FirstOrDefault();
-
-            if (string.IsNullOrEmpty(version))
-            {
-                Console.Error.WriteLine("ERROR: Failed to fetch latest version from resonite-version-monitor");
-                return null;
-            }
-
-            return version;
-        }
-        catch (HttpRequestException ex)
-        {
-            Console.Error.WriteLine($"ERROR: Failed to fetch version info: {ex.Message}");
-            return null;
-        }
-        catch (TaskCanceledException)
-        {
-            Console.Error.WriteLine("ERROR: Timed out fetching version info");
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            Console.Error.WriteLine($"ERROR: Invalid JSON from version monitor: {ex.Message}");
-            return null;
-        }
-    }
-
-    private static async Task<bool> DownloadIfNeeded(string gameDir, string headlessDir, string targetVersion)
+    private static async Task<bool> DownloadIfNeeded(string gameDir, string headlessDir, string? requestedVersion)
     {
         var buildVersionFile = Path.Combine(gameDir, "Build.version");
         var resoniteDll = Path.Combine(headlessDir, "Resonite.dll");
 
-        var installedVersion = File.Exists(buildVersionFile)
-            ? File.ReadAllText(buildVersionFile).Trim()
-            : null;
+        if (File.Exists(resoniteDll))
+        {
+            var installedVersion = File.Exists(buildVersionFile)
+                ? File.ReadAllText(buildVersionFile).Trim()
+                : null;
 
-        var needsDownload = DetermineIfDownloadNeeded(resoniteDll, installedVersion, targetVersion);
+            if (installedVersion != null)
+            {
+                Console.WriteLine($"Found installed version: {installedVersion}");
+                
+                if (string.IsNullOrEmpty(requestedVersion))
+                {
+                    Console.WriteLine("No specific version requested, using existing installation");
+                    return true;
+                }
+                
+                if (installedVersion == requestedVersion)
+                {
+                    Console.WriteLine($"Requested version {requestedVersion} already installed");
+                    return true;
+                }
+                
+                Console.WriteLine($"Version mismatch: installed={installedVersion}, requested={requestedVersion}");
+            }
+        }
 
-        if (!needsDownload)
-            return true;
-
-        Console.WriteLine($"Downloading Resonite {targetVersion}...");
-        CleanDirectory(gameDir);
-
-        var exitCode = await RunDepotDownloader(gameDir);
+        Console.WriteLine("Running ResoniteDownloader...");
+        var exitCode = await RunResoniteDownloader(gameDir, requestedVersion);
+        
         if (exitCode != 0)
         {
-            Console.Error.WriteLine("ERROR: DepotDownloader failed");
+            Console.Error.WriteLine("ERROR: ResoniteDownloader failed");
             return false;
         }
 
@@ -144,75 +100,65 @@ static partial class Program
 
         var finalVersion = File.Exists(buildVersionFile)
             ? File.ReadAllText(buildVersionFile).Trim()
-            : targetVersion;
-        Console.WriteLine($"Resonite {finalVersion} installed successfully");
+            : "unknown";
+        Console.WriteLine($"Resonite {finalVersion} ready");
 
         return true;
     }
 
-    private static bool DetermineIfDownloadNeeded(string resoniteDll, string? installedVersion, string targetVersion)
-    {
-        if (!File.Exists(resoniteDll))
-        {
-            Console.WriteLine("Resonite not found, download required");
-            return true;
-        }
-
-        if (installedVersion is null)
-        {
-            Console.WriteLine("No version info found, download required");
-            return true;
-        }
-
-        if (!Version.TryParse(installedVersion, out var installed) ||
-            !Version.TryParse(targetVersion, out var target))
-        {
-            Console.WriteLine("Unable to parse version, download required");
-            return true;
-        }
-
-        if (installed >= target)
-        {
-            Console.WriteLine($"Resonite {installedVersion} already installed [target: {targetVersion}]");
-            return false;
-        }
-
-        Console.WriteLine($"Upgrade needed: {installedVersion} -> {targetVersion}");
-        return true;
-    }
-
-    private static void CleanDirectory(string directory)
-    {
-        if (!Directory.Exists(directory))
-            return;
-
-        foreach (var entry in Directory.GetFileSystemEntries(directory))
-        {
-            if (Directory.Exists(entry))
-                Directory.Delete(entry, recursive: true);
-            else
-                File.Delete(entry);
-        }
-    }
-
-    private static async Task<int> RunDepotDownloader(string gameDir)
+    private static async Task<int> RunResoniteDownloader(string gameDir, string? requestedVersion)
     {
         var steamUser = Environment.GetEnvironmentVariable("STEAM_USERNAME")!;
         var steamPass = Environment.GetEnvironmentVariable("STEAM_PASSWORD")!;
-        var betaPass = Environment.GetEnvironmentVariable("STEAM_BETA_PASSWORD")!;
+        var betaPass = Environment.GetEnvironmentVariable("STEAM_BETA_PASSWORD") ?? "";
 
-        var startInfo = new ProcessStartInfo("DepotDownloader")
+        var args = new List<string>
         {
-            Arguments = $"-app {AppId} -depot {DepotId} -username {steamUser} -password {steamPass} -beta headless -betapassword {betaPass} -dir {gameDir}",
+            "download",
+            "--game-dir", gameDir,
+            "--steam-user", steamUser,
+            "--steam-pass", steamPass,
+            "--branch", "headless"
+        };
+
+        // Add beta password if provided (required for headless branch)
+        if (!string.IsNullOrEmpty(betaPass))
+        {
+            args.Add("--beta-pass");
+            args.Add(betaPass);
+        }
+
+        if (!string.IsNullOrEmpty(requestedVersion))
+        {
+            args.Add("--version");
+            args.Add(requestedVersion);
+        }
+
+        var startInfo = new ProcessStartInfo("ResoniteDownloader")
+        {
+            ArgumentList = { },
             UseShellExecute = false
         };
+
+        foreach (var arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        // Log command (with passwords redacted)
+        var safeArgs = args
+            .Select((arg, i) => 
+                (i > 0 && (args[i-1] == "--steam-user" || args[i-1] == "--steam-pass" || args[i-1] == "--beta-pass")) 
+                    ? "***" 
+                    : arg)
+            .ToList();
+        Console.WriteLine($"Running: ResoniteDownloader {string.Join(" ", safeArgs)}");
 
         var process = Process.Start(startInfo);
         if (process is null)
         {
-            Console.Error.WriteLine("ERROR: Failed to start DepotDownloader");
+            Console.Error.WriteLine("ERROR: Failed to start ResoniteDownloader");
             return -1;
         }
+        
         await process.WaitForExitAsync();
         return process.ExitCode;
     }
@@ -237,6 +183,24 @@ static partial class Program
             foreach (var file in Directory.GetFiles(gameDir, extension, SearchOption.AllDirectories))
                 File.Delete(file);
         }
+
+        var preservedEntries = new HashSet<string>(StringComparer.Ordinal)
+        {
+            Path.GetFullPath(headlessDir),
+            Path.GetFullPath(Path.Combine(gameDir, "Build.version"))
+        };
+
+        foreach (var path in Directory.GetFileSystemEntries(gameDir))
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (preservedEntries.Contains(fullPath))
+                continue;
+
+            if (Directory.Exists(fullPath))
+                Directory.Delete(fullPath, recursive: true);
+            else if (File.Exists(fullPath))
+                File.Delete(fullPath);
+        }
     }
 
     private static async Task<int> LaunchServer(string headlessDir, string configPath, string logsPath, string[] args)
@@ -245,7 +209,6 @@ static partial class Program
         Directory.SetCurrentDirectory(headlessDir);
 
         Environment.SetEnvironmentVariable("DOTNET_EnableDiagnostics", "0");
-        ConfigureNativeLibraryPaths(headlessDir);
 
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -259,25 +222,8 @@ static partial class Program
             Console.Error.WriteLine("ERROR: Failed to start Resonite server");
             return 1;
         }
+        
         await process.WaitForExitAsync();
         return process.ExitCode;
-    }
-
-    private static void ConfigureNativeLibraryPaths(string headlessDir)
-    {
-        var nativePaths = new[]
-        {
-            Path.Combine(headlessDir, "runtimes/linux/native"),
-            Path.Combine(headlessDir, "runtimes/linux-x64/native"),
-            Path.Combine(headlessDir, "runtimes/linux-arm64/native")
-        }.Where(Directory.Exists);
-
-        var existingPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "";
-
-        var allPaths = nativePaths
-            .Concat([existingPath])
-            .Where(s => !string.IsNullOrEmpty(s));
-
-        Environment.SetEnvironmentVariable("LD_LIBRARY_PATH", string.Join(":", allPaths));
     }
 }

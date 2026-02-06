@@ -6,6 +6,7 @@
   pkgs,
   n2c,
   skopeo-nix2container,
+  resoniteDownloaderPkg,
 }:
 
 let
@@ -21,17 +22,15 @@ let
   # These are transitive dependencies of the bundled native libs (e.g. libfreetype6.so)
   nativeLibs = with pkgs; [
     bzip2
-    fontconfig
-    icu
     libpng
-    openssl
     zlib
   ];
 
   # Runtime dependencies
   runtimeDeps = [
-    entrypoint
     depotdownloader
+    resoniteDownloaderPkg
+    entrypoint
   ];
 
   # Create /tmp directory for .NET isolated storage
@@ -43,7 +42,7 @@ let
   # All dependencies in a single layer
   allDeps = [
     pkgs.cacert
-    pkgs.dotnet-runtime_10
+    pkgs.dotnetCorePackages.runtime_10_0
   ]
   ++ runtimeDeps
   ++ nativeLibs;
@@ -77,8 +76,8 @@ let
       Entrypoint = [ "${entrypoint}/bin/Entrypoint" ];
       Env = [
         "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-        "DOTNET_ROOT=${pkgs.dotnet-runtime_10}"
-        "PATH=${lib.makeBinPath runtimeDeps}:${pkgs.dotnet-runtime_10}/bin"
+        "DOTNET_ROOT=${pkgs.dotnetCorePackages.runtime_10_0}"
+        "PATH=${lib.makeBinPath runtimeDeps}:${pkgs.dotnetCorePackages.runtime_10_0}/bin"
         "LD_LIBRARY_PATH=${lib.makeLibraryPath nativeLibs}"
         "HOME=/Game"
       ];
