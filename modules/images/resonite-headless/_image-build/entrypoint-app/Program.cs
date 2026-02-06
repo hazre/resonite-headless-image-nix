@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading;
 
 return await Program.Main(args);
 
@@ -342,9 +343,20 @@ static partial class Program
 
         var startInfo = new ProcessStartInfo("dotnet")
         {
-            Arguments = $"Resonite.dll -HeadlessConfig {configPath} -Logs {logsPath} {string.Join(" ", args)}",
-            UseShellExecute = false
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
+
+        startInfo.ArgumentList.Add("Resonite.dll");
+        startInfo.ArgumentList.Add("-HeadlessConfig");
+        startInfo.ArgumentList.Add(configPath);
+        startInfo.ArgumentList.Add("-Logs");
+        startInfo.ArgumentList.Add(logsPath);
+
+        foreach (var arg in args)
+            startInfo.ArgumentList.Add(arg);
 
         if (!string.IsNullOrWhiteSpace(libraryPath))
             startInfo.Environment["LD_LIBRARY_PATH"] = libraryPath;
@@ -355,8 +367,82 @@ static partial class Program
             Console.Error.WriteLine("ERROR: Failed to start Resonite server");
             return 1;
         }
-        
+
+        var logCommandSent = 0;
+        process.OutputDataReceived += (_, eventArgs) =>
+        {
+            if (eventArgs.Data is null)
+                return;
+
+            Console.WriteLine(eventArgs.Data);
+            TryEnableLogMode(process, eventArgs.Data, ref logCommandSent);
+        };
+        process.ErrorDataReceived += (_, eventArgs) =>
+        {
+            if (eventArgs.Data is null)
+                return;
+
+            Console.Error.WriteLine(eventArgs.Data);
+            TryEnableLogMode(process, eventArgs.Data, ref logCommandSent);
+        };
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        StartConsoleInputForwarder(process);
+
         await process.WaitForExitAsync();
         return process.ExitCode;
+    }
+
+    private static void TryEnableLogMode(Process process, string outputLine, ref int logCommandSent)
+    {
+        if (!outputLine.Contains("World Running", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (Interlocked.CompareExchange(ref logCommandSent, 1, 0) != 0)
+            return;
+
+        try
+        {
+            process.StandardInput.WriteLine("log");
+            process.StandardInput.Flush();
+            Console.WriteLine("Enabled Resonite interactive log output.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"WARNING: Failed to send initial 'log' command: {ex.Message}");
+        }
+    }
+
+    private static void StartConsoleInputForwarder(Process process)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!process.HasExited)
+            {
+                string? line;
+                try
+                {
+                    line = await Console.In.ReadLineAsync();
+                }
+                catch
+                {
+                    break;
+                }
+
+                if (line is null)
+                    break;
+
+                try
+                {
+                    await process.StandardInput.WriteLineAsync(line);
+                    await process.StandardInput.FlushAsync();
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        });
     }
 }

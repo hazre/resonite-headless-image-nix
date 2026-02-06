@@ -76,6 +76,14 @@ docker compose up -d
 2. The game is stored in `/Game` - mount a persistent volume to avoid re-downloading
 3. On subsequent runs, the container checks the installed version and skips download if up-to-date
 4. Version can be pinned with `RESONITE_VERSION` or defaults to latest
+5. After startup reaches `World Running`, the entrypoint sends `log` once to enable continuous log output by default
+
+## Interactive Shell Behavior
+
+- The headless shell stays interactive through container stdin/stdout.
+- On first `World Running`, the wrapper sends `log` automatically so logs stream to console.
+- Press Enter once to leave log-stream mode and return to interactive command mode.
+- You can run `log` again any time to switch back to log-stream mode.
 
 ## Pinning a Version
 
