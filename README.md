@@ -87,26 +87,103 @@ docker run -e RESONITE_VERSION=2026.1.16.273 ... ghcr.io/hazre/resonite-headless
 
 Images are available for both `linux/amd64` and `linux/arm64`. Docker will automatically pull the correct architecture for your system.
 
-## Building from Source
+## Command Reference
 
-If you want to build the image yourself:
+All flake outputs below are available for both `x86_64-linux` and `aarch64-linux`.
 
+Current output names:
+- Packages: `nix-lib-docs`, `oci-resonite-headless`, `oci-resonite-headless-copy`, `write-flake`
+- Apps: `oci-cve-trivy-resonite-headless`, `oci-cve-grype-resonite-headless`, `oci-sbom-syft-resonite-headless`
+- Checks: `check-flake-file`, `oci-dive-resonite-headless`
+- Image passthru commands on `oci-resonite-headless`: `copyTo`, `copyToPodman`, `copyToDockerDaemon`, `copyToRegistry`
+
+Build image package:
 ```bash
-# Prerequisites: Nix with flakes enabled
+nix build .#oci-resonite-headless
+```
 
-# Build and export image
-nix build .#image -o build/result
-nix run .#copyToDockerArchive
+Build local docs package:
+```bash
+nix build .#nix-lib-docs
+```
 
-# Load into docker/podman
+Export Docker archive (project helper, removes old tar first):
+```bash
+nix run .#oci-resonite-headless-copy -- build/resonite-headless.tar
+```
+
+Cross-architecture archive export:
+```bash
+nix run .#packages.x86_64-linux.oci-resonite-headless-copy -- build/resonite-headless-amd64.tar
+nix run .#packages.aarch64-linux.oci-resonite-headless-copy -- build/resonite-headless-arm64.tar
+```
+
+Load resulting archive:
+```bash
 docker load -i build/resonite-headless.tar
 ```
 
-Cross-architecture builds:
+nix-oci default copy commands exposed on the image package:
 ```bash
-nix run .#packages.x86_64-linux.copyToDockerArchive
-nix run .#packages.aarch64-linux.copyToDockerArchive
+# Generic skopeo copy (set destination yourself)
+nix run .#oci-resonite-headless.copyTo -- docker://ghcr.io/<user>/resonite-headless:runtime
+
+# Copy to local podman store
+nix run .#oci-resonite-headless.copyToPodman
+
+# Copy to local docker daemon
+nix run .#oci-resonite-headless.copyToDockerDaemon
+
+# Copy directly to docker/oci registry
+nix run .#oci-resonite-headless.copyToRegistry
+
+# Docker archive via default copyTo
+nix run .#oci-resonite-headless.copyTo -- docker-archive:build/resonite-headless.tar:resonite-headless:runtime
 ```
+
+Image analysis and security:
+```bash
+# Dive layer analysis (check output)
+nix build .#checks.x86_64-linux.oci-dive-resonite-headless
+
+# CVE scans (apps)
+nix run .#oci-cve-trivy-resonite-headless
+nix run .#oci-cve-grype-resonite-headless
+
+# SBOM generation (app)
+nix run .#oci-sbom-syft-resonite-headless
+```
+
+## Flake Workflow
+
+`flake.nix` is generated. Do not edit it directly.
+
+When you change flake inputs/module wiring:
+
+```bash
+# Regenerate flake.nix from flake-file modules
+nix run .#write-flake
+
+# Verify generated flake.nix is up to date
+nix build .#checks.x86_64-linux.check-flake-file
+
+# Run all checks on all systems
+nix flake check --all-systems
+```
+
+## Module Layout
+
+Feature modules are under `modules/` and auto-imported via `import-tree`.
+
+Image-related feature files:
+- `modules/images/resonite-headless/flake-parts.nix` - base container/output wiring
+- `modules/images/resonite-headless/depotdownloader-overlay.nix` - module that adds patched DepotDownloader to image dependencies
+- `modules/images/resonite-headless/entrypoint-app.nix` - module that sets the image package/entrypoint to the .NET entrypoint app
+
+Feature-local implementation assets:
+- `modules/images/resonite-headless/_image-build/...`
+
+`_image-build` is intentionally prefixed with `_` so `import-tree` does not auto-import it as flake modules.
 
 ## License
 
